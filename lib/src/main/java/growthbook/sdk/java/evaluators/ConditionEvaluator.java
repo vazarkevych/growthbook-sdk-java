@@ -233,79 +233,26 @@ public class ConditionEvaluator implements IConditionEvaluator {
         switch (operator) {
             case IN:
                 if (actual == null) return false;
+                if (!expected.isJsonArray()) return false;
+                return isIn(actual, expected.getAsJsonArray(), false);
 
-                if (DataType.ARRAY == attributeDataType) {
-                    if (!expected.isJsonArray()) return false;
+            // Replace the INI case:
+            case INI:
+                if (actual == null) return false;
+                if (!expected.isJsonArray()) return false;
+                return isIn(actual, expected.getAsJsonArray(), true);
 
-                    JsonArray value = actual.getAsJsonArray();
-                    JsonArray expectedArr = expected.getAsJsonArray();
-
-                    return isIn(value, expectedArr);
-                }
-
-                if (DataType.STRING == attributeDataType) {
-                    String value = actual.getAsString();
-                    Type listType = new TypeToken<ArrayList<String>>() {
-                    }.getType();
-                    ArrayList<String> conditionsList = jsonUtils.gson.fromJson(expected, listType);
-                    return conditionsList.contains(value);
-                }
-
-                if (DataType.NUMBER == attributeDataType) {
-                    Float value = actual.getAsFloat();
-                    Type listType = new TypeToken<ArrayList<Float>>() {
-                    }.getType();
-                    ArrayList<Float> conditionsList = jsonUtils.gson.fromJson(expected, listType);
-                    return conditionsList.contains(value);
-                }
-
-                if (DataType.BOOLEAN == attributeDataType) {
-                    Boolean value = actual.getAsBoolean();
-                    Type listType = new TypeToken<ArrayList<Boolean>>() {
-                    }.getType();
-                    ArrayList<Boolean> conditionsList = jsonUtils.gson.fromJson(expected, listType);
-                    return conditionsList.contains(value);
-                }
-                break;
-
-
+            // Replace the NIN case:
             case NIN:
                 if (actual == null) return false;
+                if (!expected.isJsonArray()) return false;
+                return !isIn(actual, expected.getAsJsonArray(), false);
 
-                if (DataType.ARRAY == attributeDataType) {
-                    if (!expected.isJsonArray()) return false;
-
-                    JsonArray value = actual.getAsJsonArray();
-                    JsonArray expectedArr = expected.getAsJsonArray();
-
-                    return !isIn(value, expectedArr);
-                }
-
-                if (DataType.STRING == attributeDataType) {
-                    String value = actual.getAsString();
-                    Type listType = new TypeToken<ArrayList<String>>() {
-                    }.getType();
-                    ArrayList<String> conditionsList = jsonUtils.gson.fromJson(expected, listType);
-                    return !conditionsList.contains(value);
-                }
-
-                if (DataType.NUMBER == attributeDataType) {
-                    Float value = actual.getAsFloat();
-                    Type listType = new TypeToken<ArrayList<Float>>() {
-                    }.getType();
-                    ArrayList<Float> conditionsList = jsonUtils.gson.fromJson(expected, listType);
-                    return !conditionsList.contains(value);
-                }
-
-                if (DataType.BOOLEAN == attributeDataType) {
-                    Boolean value = actual.getAsBoolean();
-                    Type listType = new TypeToken<ArrayList<Boolean>>() {
-                    }.getType();
-                    ArrayList<Boolean> conditionsList = jsonUtils.gson.fromJson(expected, listType);
-                    return !conditionsList.contains(value);
-                }
-                break;
-
+            // Replace the NINI case:
+            case NINI:
+                if (actual == null) return false;
+                if (!expected.isJsonArray()) return false;
+                return !isIn(actual, expected.getAsJsonArray(), true);
 
             case GT:
                 if (actual == null || DataType.NULL.equals(attributeDataType)) {
@@ -394,20 +341,14 @@ public class ConditionEvaluator implements IConditionEvaluator {
 
             case ALL:
                 if (actual == null || !actual.isJsonArray()) return false;
-                JsonArray actualArrayForAll = (JsonArray) actual;
-                JsonArray expectedArrayForAll = (JsonArray) expected;
+                if (!expected.isJsonArray()) return false;
+                return isInAll(actual.getAsJsonArray(), expected.getAsJsonArray(), savedGroups, false);
 
-                for (int i = 0; i < expectedArrayForAll.size(); i++) {
-                    boolean passed = false;
-                    for (int j = 0; j < actualArrayForAll.size(); j++) {
-                        if (evalConditionValue(expectedArrayForAll.get(i), actualArrayForAll.get(j), savedGroups)) {
-                            passed = true;
-                            break;
-                        }
-                    }
-                    if (!passed) return false;
-                }
-                return true;
+            // Replace the ALLI case:
+            case ALLI:
+                if (actual == null || !actual.isJsonArray()) return false;
+                if (!expected.isJsonArray()) return false;
+                return isInAll(actual.getAsJsonArray(), expected.getAsJsonArray(), savedGroups, true);
 
             case NOT:
                 return !evalConditionValue(expected, actual, savedGroups);

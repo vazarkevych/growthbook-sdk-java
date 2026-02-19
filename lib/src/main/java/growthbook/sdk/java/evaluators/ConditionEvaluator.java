@@ -699,4 +699,17 @@ public class ConditionEvaluator implements IConditionEvaluator {
             return false;
         }
     }
+
+    /**
+     * Folds a JsonElement to lowercase if it's a string and inSensitive is true.
+     * Used where you need a folded value rather than a comparison.
+     */
+    private JsonElement caseFold(@Nullable JsonElement value) {
+        if (value != null
+                && value.isJsonPrimitive()
+                && value.getAsJsonPrimitive().isString()) {
+            return new JsonPrimitive(value.getAsString().toLowerCase());
+        }
+        return value;
+    }
 }

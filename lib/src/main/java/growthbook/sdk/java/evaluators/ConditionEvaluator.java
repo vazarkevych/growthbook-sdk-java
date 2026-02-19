@@ -234,19 +234,16 @@ public class ConditionEvaluator implements IConditionEvaluator {
                 if (!expected.isJsonArray()) return false;
                 return isIn(actual, expected.getAsJsonArray(), false);
 
-            // Replace the INI case:
             case INI:
                 if (actual == null) return false;
                 if (!expected.isJsonArray()) return false;
                 return isIn(actual, expected.getAsJsonArray(), true);
 
-            // Replace the NIN case:
             case NIN:
                 if (actual == null) return false;
                 if (!expected.isJsonArray()) return false;
                 return !isIn(actual, expected.getAsJsonArray(), false);
 
-            // Replace the NINI case:
             case NINI:
                 if (actual == null) return false;
                 if (!expected.isJsonArray()) return false;
@@ -342,7 +339,6 @@ public class ConditionEvaluator implements IConditionEvaluator {
                 if (!expected.isJsonArray()) return false;
                 return isInAll(actual.getAsJsonArray(), expected.getAsJsonArray(), savedGroups, false);
 
-            // Replace the ALLI case:
             case ALLI:
                 if (actual == null || !actual.isJsonArray()) return false;
                 if (!expected.isJsonArray()) return false;

@@ -641,33 +641,67 @@ public class ConditionEvaluator implements IConditionEvaluator {
         return true;
     }
 
-    private Boolean isIn(JsonElement actual, JsonArray expected) {
-        Type listType = new TypeToken<ArrayList<Object>>() {
-        }.getType();
-        ArrayList<JsonElement> expectedAsList = jsonUtils.gson.fromJson(expected, listType);
+    private Boolean isIn(JsonElement actual, JsonArray expected, boolean inSensitive) {
+        if (actual == null) return false;
 
-        if (!actual.isJsonArray()) return expected.contains(actual);
+        if (!actual.isJsonArray()) {
+            // actual is a primitive — check if expected contains it
+            if (inSensitive) {
+                for (JsonElement exp : expected) {
+                    if (caseFold(actual).equals(caseFold(exp))) {
+                        return true;
+                    }
+                }
+                return false;
+            }
+            return expected.contains(actual);
+        }
 
+        // actual is an array — check if any actual element matches any expected element
         JsonArray actualArr = actual.getAsJsonArray();
 
         if (actualArr.isEmpty()) return false;
 
-        DataType attributeDataType = GrowthBookJsonUtils.getElementType(actualArr.get(0));
-        ArrayList<Object> actualAsList = jsonUtils.gson.fromJson(actualArr, listType);
-
-        return actualAsList.stream()
-                .anyMatch(o -> {
-                    if (
-                            attributeDataType == DataType.STRING ||
-                                    attributeDataType == DataType.NUMBER ||
-                                    attributeDataType == DataType.BOOLEAN
-                    ) {
-                        return expectedAsList.contains(o);
+        for (JsonElement actualItem : actualArr) {
+            for (JsonElement expectedItem : expected) {
+                if (inSensitive) {
+                    if (caseFold(actualItem).equals(caseFold(expectedItem))) {
+                        return true;
                     }
-
-                    return false;
-                });
+                } else {
+                    if (Objects.equals(actualItem, expectedItem)) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
     }
+
+    /**
+     * Checks that for every element in expected, there is at least one matching element in actual.
+     * Uses evalConditionValue for comparison, which supports operator objects.
+     *
+     * @param actual      the attribute value (must be an array)
+     * @param expected    the condition array — every item must match at least one in actual
+     * @param savedGroups saved groups for group-based conditions
+     * @param inSensitive if true, string comparisons are case-insensitive
+     * @return true if all expected items are matched
+     */
+    private Boolean isInAll(JsonArray actual, JsonArray expected, @Nullable JsonObject savedGroups, boolean inSensitive) {
+        for (int i = 0; i < expected.size(); i++) {
+            boolean passed = false;
+            for (int j = 0; j < actual.size(); j++) {
+                if (evalConditionValue(expected.get(i), actual.get(j), savedGroups, inSensitive)) {
+                    passed = true;
+                    break;
+                }
+            }
+            if (!passed) return false;
+        }
+        return true;
+    }
+
 
     private <T> boolean isMatchingPrimitive(
             JsonElement conditionValue,

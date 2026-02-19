@@ -5,7 +5,6 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
 import com.google.gson.JsonSyntaxException;
-import com.google.gson.reflect.TypeToken;
 import growthbook.sdk.java.util.GrowthBookJsonUtils;
 import growthbook.sdk.java.model.Operator;
 import growthbook.sdk.java.util.StringUtils;
@@ -13,7 +12,6 @@ import growthbook.sdk.java.model.DataType;
 import lombok.extern.slf4j.Slf4j;
 
 import javax.annotation.Nullable;
-import java.lang.reflect.Type;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Map;
@@ -413,17 +411,17 @@ public class ConditionEvaluator implements IConditionEvaluator {
                 if (actual != null && expected != null) {
                     JsonElement jsonElement = savedGroups != null ? savedGroups.get(expected.getAsString()) : null;
                     if (jsonElement != null) {
-                        return isIn(actual, jsonElement.getAsJsonArray());
+                        return isIn(actual, jsonElement.getAsJsonArray(), false);
                     }
-                    return isIn(actual, new JsonArray());
+                    return isIn(actual, new JsonArray(), false);
                 }
             case NOT_IN_GROUP:
                 if (actual != null && expected != null) {
                     JsonElement jsonElement = savedGroups != null ? savedGroups.get(expected.getAsString()) : null;
                     if (jsonElement != null) {
-                        return !isIn(actual, jsonElement.getAsJsonArray());
+                        return !isIn(actual, jsonElement.getAsJsonArray(), false);
                     }
-                    return !isIn(actual, new JsonArray());
+                    return !isIn(actual, new JsonArray(), false);
                 }
             default:
                 return false;

@@ -474,12 +474,19 @@ public class ConditionEvaluator implements IConditionEvaluator {
      * @param attributeValue Object or primitive
      * @return true if equal
      */
-    Boolean evalConditionValue(JsonElement conditionValue, @Nullable JsonElement attributeValue, @Nullable JsonObject savedGroups) {
+    Boolean evalConditionValue(JsonElement conditionValue, @Nullable JsonElement attributeValue, @Nullable JsonObject savedGroups, boolean inSensitive) {
 
         if (conditionValue == null) {
             return attributeValue == null;
         }
         DataType conditionValueElementType = GrowthBookJsonUtils.getElementType(conditionValue);
+        DataType attributeValueElementType = GrowthBookJsonUtils.getElementType(attributeValue);
+
+        if (inSensitive && attributeValue != null
+                && attributeValueElementType == DataType.STRING
+                && conditionValueElementType == DataType.STRING) {
+            return conditionValue.getAsString().equalsIgnoreCase(attributeValue.getAsString());
+        }
 
         switch (conditionValueElementType) {
             case STRING:
@@ -517,6 +524,10 @@ public class ConditionEvaluator implements IConditionEvaluator {
             default:
                 return conditionValue.toString().equals(attributeValue != null ? attributeValue.toString() : null);
         }
+    }
+
+    Boolean evalConditionValue(JsonElement conditionValue, @Nullable JsonElement attributeValue, @Nullable JsonObject savedGroups) {
+        return evalConditionValue(conditionValue, attributeValue, savedGroups, false);
     }
 
     Boolean elemMatch(JsonElement actual, JsonElement expected, @Nullable JsonObject savedGroups) {

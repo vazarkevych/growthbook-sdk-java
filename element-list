@@ -2,13 +2,17 @@ growthbook.sdk.java
 growthbook.sdk.java.callback
 growthbook.sdk.java.evaluators
 growthbook.sdk.java.exception
+growthbook.sdk.java.featurefetch
 growthbook.sdk.java.model
 growthbook.sdk.java.multiusermode
 growthbook.sdk.java.multiusermode.configurations
 growthbook.sdk.java.multiusermode.usage
 growthbook.sdk.java.multiusermode.util
+growthbook.sdk.java.remoteeval
 growthbook.sdk.java.repository
+growthbook.sdk.java.retry
 growthbook.sdk.java.sandbox
 growthbook.sdk.java.serializers
+growthbook.sdk.java.sse
 growthbook.sdk.java.stickyBucketing
 growthbook.sdk.java.util

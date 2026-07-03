@@ -6,18 +6,25 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import javax.annotation.Nullable;
-
+import java.time.Duration;
 import com.google.gson.JsonObject;
 import growthbook.sdk.java.callback.ExperimentRunCallback;
 import growthbook.sdk.java.evaluators.ConditionEvaluator;
 import growthbook.sdk.java.evaluators.ExperimentEvaluator;
 import growthbook.sdk.java.evaluators.FeatureEvaluator;
+import growthbook.sdk.java.exception.FeatureFetchException;
 import growthbook.sdk.java.model.AssignedExperiment;
 import growthbook.sdk.java.model.Experiment;
 import growthbook.sdk.java.model.ExperimentResult;
 import growthbook.sdk.java.model.FeatureResult;
-import growthbook.sdk.java.model.FeatureResultSource;
 import growthbook.sdk.java.model.GBContext;
+import growthbook.sdk.java.model.RequestBodyForRemoteEval;
+import growthbook.sdk.java.remoteeval.RemoteEvalCache;
+import growthbook.sdk.java.remoteeval.RemoteEvalCacheKey;
+import growthbook.sdk.java.remoteeval.RemoteEvalOptionsValidator;
+import growthbook.sdk.java.remoteeval.RemoteEvalRequestBuilder;
+import growthbook.sdk.java.remoteeval.RemoteEvalResponse;
+import growthbook.sdk.java.remoteeval.RemoteEvalService;
 import growthbook.sdk.java.util.GrowthBookJsonUtils;
 import growthbook.sdk.java.util.GrowthBookUtils;
 import lombok.Getter;
@@ -50,17 +57,14 @@ public class GrowthBook implements IGrowthBook {
     private final GrowthBookJsonUtils jsonUtils = GrowthBookJsonUtils.getInstance();
 
     private List<ExperimentRunCallback> callbacks;
-    @Getter
-    @Setter
-    private JsonObject attributeOverrides;
+    @Getter @Setter private JsonObject attributeOverrides;
 
     public EvaluationContext evaluationContext = null;
     private final Map<String, AssignedExperiment> assigned;
+    private RemoteEvalService remoteEvalService;
+    private RemoteEvalCache remoteEvalCache;
 
-    @Getter
-    @Setter
-    private Map<String, Object> forcedFeatureValues;
-
+    @Getter private Map<String, Object> forcedFeatureValues;
     /**
      * Initialize the GrowthBook SDK with a provided {@link GBContext}
      *
@@ -76,6 +80,8 @@ public class GrowthBook implements IGrowthBook {
         this.experimentEvaluatorEvaluator = new ExperimentEvaluator();
         this.attributeOverrides = context.getAttributes() == null ? new JsonObject() : context.getAttributes();
 
+        // Load sticky bucket docs on construction if a service is configured,
+        refreshStickyBucketService(null);
         this.initializeEvalContext();
     }
 
@@ -120,12 +126,37 @@ public class GrowthBook implements IGrowthBook {
     }
 
     private void initializeEvalContext() {
-        // build options
+        if (this.context.isRemoteEvalEnabled()) {
+            refreshRemoteEvalContext();
+            return;
+        }
+
+        this.evaluationContext = buildEvaluationContext(this.context.getFeatures(), this.context.getSavedGroups());
+    }
+
+    private void refreshRemoteEvalContext() {
+        RemoteEvalOptionsValidator.validate(this.context);
+        try {
+            RemoteEvalResponse response = getRemoteEvalResponse();
+            this.context.setFeatures(response.getFeatures());
+            this.context.setSavedGroups(response.getSavedGroups());
+        } catch (FeatureFetchException e) {
+            log.warn("Remote evaluation request failed. Falling back to current local feature context.", e);
+        }
+        this.evaluationContext = buildEvaluationContext(this.context.getFeatures(), this.context.getSavedGroups());
+    }
+
+    private EvaluationContext buildEvaluationContext(Map<String, growthbook.sdk.java.model.Feature<?>> features, JsonObject savedGroups) {
         Options options = Options.builder()
                 .enabled(this.context.getEnabled())
                 .isQaMode(this.context.getIsQaMode())
                 .allowUrlOverrides(this.context.getAllowUrlOverride())
                 .url(this.context.getUrl())
+                .apiHost(this.context.getApiHost())
+                .clientKey(this.context.getClientKey())
+                .remoteEval(this.context.getRemoteEval())
+                .cacheKeyAttributes(this.context.getCacheKeyAttributes())
+                .remoteEvalCacheSize(this.context.getRemoteEvalCacheSize())
                 .stickyBucketIdentifierAttributes(this.context.getStickyBucketIdentifierAttributes())
                 .stickyBucketService(this.context.getStickyBucketService())
                 .trackingCallBackWithUser(new TrackingCallbackAdapter(this.context.getTrackingCallback()))
@@ -133,14 +164,15 @@ public class GrowthBook implements IGrowthBook {
                 .globalForcedFeatureValues(this.forcedFeatureValues)
                 .build();
 
-        // build global
         GlobalContext globalContext = GlobalContext.builder()
-                .features(this.context.getFeatures())
-                .savedGroups(this.context.getSavedGroups())
+                .features(features)
+                .savedGroups(savedGroups)
                 .forcedFeatureValues(this.forcedFeatureValues)
+                .forcedVariations(this.context.getForcedVariationsMap())
+                .enabled(this.context.getEnabled())
+                .qaMode(this.context.getIsQaMode())
                 .build();
 
-        // build user context
         UserContext userContext = new UserContext.UserContextBuilder()
                 .attributes(this.context.getAttributes())
                 .stickyBucketAssignmentDocs(this.context.getStickyBucketAssignmentDocs())
@@ -148,8 +180,55 @@ public class GrowthBook implements IGrowthBook {
                 .forcedFeatureValues(this.forcedFeatureValues)
                 .build();
 
-        this.evaluationContext = new EvaluationContext(globalContext, userContext,
+        return new EvaluationContext(globalContext, userContext,
                 new EvaluationContext.StackContext(), options);
+    }
+
+    private RemoteEvalResponse getRemoteEvalResponse() throws FeatureFetchException {
+        String url = RemoteEvalRequestBuilder.normalizeUrl(this.context.getUrl());
+        String cacheKey = RemoteEvalCacheKey.fromContext(
+                this.context.getApiHost(),
+                this.context.getClientKey(),
+                this.context.getAttributes(),
+                this.context.getForcedVariationsMap(),
+                this.forcedFeatureValues,
+                url,
+                this.context.getCacheKeyAttributes()
+        );
+
+        RequestBodyForRemoteEval requestBody = RemoteEvalRequestBuilder.build(
+                this.context.getAttributes(),
+                this.forcedFeatureValues,
+                this.context.getForcedVariationsMap(),
+                url
+        );
+        return getRemoteEvalCache().get(cacheKey, requestBody);
+    }
+
+    private synchronized RemoteEvalService getRemoteEvalService() {
+        if (this.remoteEvalService == null) {
+            this.remoteEvalService = new RemoteEvalService(this.context.getApiHost(), this.context.getClientKey());
+        }
+        return this.remoteEvalService;
+    }
+
+    private synchronized RemoteEvalCache getRemoteEvalCache() {
+        if (this.remoteEvalCache == null) {
+            Integer cacheTtlSeconds = this.context.getRemoteEvalCacheTtlSeconds();
+            this.remoteEvalCache = new RemoteEvalCache(
+                    getRemoteEvalService(),
+                    RemoteEvalRequestBuilder.normalizeCacheSize(this.context.getRemoteEvalCacheSize()),
+                    null,
+                    cacheTtlSeconds == null ? null : Duration.ofSeconds(cacheTtlSeconds)
+            );
+        }
+        return this.remoteEvalCache;
+    }
+
+    private void clearRemoteEvalCache() {
+        if (this.remoteEvalCache != null) {
+            this.remoteEvalCache.invalidateAll();
+        }
     }
 
     private EvaluationContext getEvaluationContext() {
@@ -165,13 +244,12 @@ public class GrowthBook implements IGrowthBook {
      * There are a few ordered steps to evaluate a feature
      * <p>
      * 1. If the key doesn't exist in context.getFeatures()
-     * 1.1 Return getFeatureResult(null, "unknownFeature")
+     *  1.1 Return getFeatureResult(null, "unknownFeature")
      * 2. Loop through the feature rules (if any)
-     * 2.1 If the rule has parentConditions (prerequisites) defined, loop through each one:
-     * 2.1.1 Call evalFeature on the parent condition
-     * 2.1.1.1 If a cycle is detected, break out of feature evaluation and return getFeatureResult(null, "cyclicPrerequisite")
-     * 2.1.2 Using the evaluated parent's result, create an object
-     *
+     *  2.1 If the rule has parentConditions (prerequisites) defined, loop through each one:
+     *      2.1.1 Call evalFeature on the parent condition
+     *          2.1.1.1 If a cycle is detected, break out of feature evaluation and return getFeatureResult(null, "cyclicPrerequisite")
+     *      2.1.2 Using the evaluated parent's result, create an object
      * @param key            name of the feature
      * @param valueTypeClass the class of the generic, e.g. MyFeature.class
      * @param <ValueType>    Gson deserializable type
@@ -191,6 +269,26 @@ public class GrowthBook implements IGrowthBook {
     @Override
     public void setAttributes(String attributesJsonString) {
         this.context.setAttributesJson(attributesJsonString);
+        // Keep attributeOverrides in sync with the new attributes so that
+        // refreshStickyBucketService fetches docs for the *new* user, not the old one.
+        this.attributeOverrides = this.context.getAttributes();
+        refreshStickyBucketService(null);
+        initializeEvalContext();
+    }
+
+    public void setUrl(String url) {
+        this.context.setUrl(url);
+        initializeEvalContext();
+    }
+
+    public void setForcedVariations(Map<String, Integer> forcedVariations) {
+        this.context.setForcedVariationsMap(forcedVariations);
+        initializeEvalContext();
+    }
+
+    public void setForcedFeatureValues(Map<String, Object> forcedFeatureValues) {
+        this.forcedFeatureValues = forcedFeatureValues;
+        clearRemoteEvalCache();
         initializeEvalContext();
     }
 
@@ -203,18 +301,18 @@ public class GrowthBook implements IGrowthBook {
      * 4. Return if forced via context
      * 5. If experiment.active is set to false, return getExperimentResult(experiment)
      * 6. Get the user hash value and return if empty
-     * 6.1 If sticky bucketing is permitted, check to see if a sticky bucket value exists. If so, skip steps 7-8.
+     *  6.1 If sticky bucketing is permitted, check to see if a sticky bucket value exists. If so, skip steps 7-8.
      * 7. Apply filters and namespace
-     * 7.1 If experiment.filters is set
-     * 7.2 Else if experiment.namespace is set, return if not in range
+     *  7.1 If experiment.filters is set
+     *  7.2 Else if experiment.namespace is set, return if not in range
      * 8. Return if any conditions are not met, return
-     * 8.1 If experiment.condition is set, return if it evaluates to false
-     * 8.2 If experiment.parentConditions is set (prerequisites), return if any of them evaluate to false. See the corresponding logic in evalFeature for more details. (Note that the gate flag should not be set in an experiment)
-     * 8.3 Apply any url targeting based on experiment.urlPatterns, return if no match
+     *  8.1 If experiment.condition is set, return if it evaluates to false
+     *  8.2 If experiment.parentConditions is set (prerequisites), return if any of them evaluate to false. See the corresponding logic in evalFeature for more details. (Note that the gate flag should not be set in an experiment)
+     *  8.3 Apply any url targeting based on experiment.urlPatterns, return if no match
      * 9. Choose a variation
-     * 9.1 If a sticky bucket value exists, use it.
-     * 9.1.1 If the found sticky bucket version is blocked (doesn't exceed experiment.minBucketVersion), then skip enrollment
-     * 9.2 Else, calculate bucket ranges for the variations and choose one
+     *  9.1 If a sticky bucket value exists, use it.
+     *      9.1.1 If the found sticky bucket version is blocked (doesn't exceed experiment.minBucketVersion), then skip enrollment
+     *  9.2 Else, calculate bucket ranges for the variations and choose one
      * 10. If assigned == -1, return getExperimentResult(experiment)
      * 11. If experiment has a forced variation, return
      * 12. If context.qaMode, return getExperimentResult(experiment)
@@ -222,9 +320,9 @@ public class GrowthBook implements IGrowthBook {
      * 14. Fire context.trackingCallback if set and the combination of hashAttribute, hashValue, experiment.key, and variationId has not been tracked before
      * 15. Return result
      *
-     * @param experiment  Experiment object
-     * @param <ValueType> Gson deserializable type
+     * @param experiment Experiment object
      * @return ExperimentResult instance
+     * @param <ValueType> Gson deserializable type
      */
     @Override
     public <ValueType> ExperimentResult<ValueType> run(Experiment<ValueType> experiment) {
@@ -244,6 +342,7 @@ public class GrowthBook implements IGrowthBook {
     @Override
     public void setOwnStickyBucketService(@Nullable StickyBucketService stickyBucketService) {
         this.context.setStickyBucketService(stickyBucketService);
+        refreshStickyBucketService(null);
         initializeEvalContext();
     }
 
@@ -253,6 +352,7 @@ public class GrowthBook implements IGrowthBook {
     @Override
     public void setInMemoryStickyBucketService() {
         this.context.setStickyBucketService(new InMemoryStickyBucketServiceImpl(new HashMap<>()));
+        refreshStickyBucketService(null);
         initializeEvalContext();
     }
 
@@ -453,9 +553,8 @@ public class GrowthBook implements IGrowthBook {
      * 4. If condition key is $not, check if !evalCondition(attributes, condition["$not"]) is false. If so, break out of the loop and return false
      * 5. Otherwise, check if evalConditionValue(value, getPath(attributes, key)) is false. If so, break out of the loop and return false
      * If none of the entries failed their checks, evalCondition returns true
-     *
      * @param attributesJsonString A JsonObject of the user attributes to evaluate
-     * @param conditionJsonString  A JsonObject of the condition
+     * @param conditionJsonString A JsonObject of the condition
      * @return Whether the condition should be true for the user
      */
     @Override
@@ -508,11 +607,16 @@ public class GrowthBook implements IGrowthBook {
     @Override
     public void destroy() {
         this.callbacks = new ArrayList<>();
+        if (this.remoteEvalCache != null) {
+            this.remoteEvalCache.shutdown();
+        }
+        if (this.remoteEvalService != null) {
+            this.remoteEvalService.close();
+        }
     }
 
     /**
-     * This method add new calback to list of ExperimentRunCallback
-     *
+     * This method add new callback to list of ExperimentRunCallback
      * @param callback ExperimentRunCallback interface
      */
     @Override
@@ -521,11 +625,17 @@ public class GrowthBook implements IGrowthBook {
     }
 
     /**
-     * Update sticky bucketing configuration
-     * Method that get cached assignments
-     * and set it to Context's Sticky Bucket Assignments documents
+     * Call this whenever features are refreshed so that sticky bucket assignment docs are
+     * reloaded for the current user.
+     * <pre>
+     *   repository.onFeaturesRefresh(gb::featuresAPIModelSuccessfully);
+     * </pre>
+     * Passing the new features JSON allows {@code deriveStickyBucketIdentifierAttributes} to
+     * pick up any new {@code hashAttribute}/{@code fallbackAttribute} values introduced by the
+     * updated feature definitions before re-fetching docs from the service.
      *
-     * @param featuresDataModel Json in format of String. See info how it looks like here <a href="https://docs.growthbook.io/app/api#sdk-connection-endpoints">...</a>
+     * @param featuresDataModel JSON string returned by the GrowthBook SDK endpoint.
+     *                          See <a href="https://docs.growthbook.io/app/api#sdk-connection-endpoints">SDK Connection Endpoints</a>
      */
     @Override
     public void featuresAPIModelSuccessfully(String featuresDataModel) {
@@ -534,7 +644,6 @@ public class GrowthBook implements IGrowthBook {
 
     /**
      * This method return boolean result if feature enabled by environment it would be present in context
-     *
      * @param featureKey Feature name
      * @return Whether feature is present in GBContext
      */
@@ -543,48 +652,13 @@ public class GrowthBook implements IGrowthBook {
         return context.getFeatures() != null && context.getFeatures().containsKey(featureKey);
     }
 
-    /**
-     * Evaluates a batch of features using a shared EvaluationContext.
-     * This optimizes memory usage by reusing the same context for multiple features.
-     *
-     * @param featureKeys    List of feature keys to evaluate
-     * @param valueTypeClass The expected type of the values (usually Object.class for mixed types)
-     * @param <ValueType>    The type of the result value
-     * @return A map where keys are feature keys and values are FeatureResult objects
-     */
-    public <ValueType> Map<String, FeatureResult<ValueType>> evalFeatures(
-            List<String> featureKeys,
-            Class<ValueType> valueTypeClass
-    ) {
-        EvaluationContext optimizedContext = getEvaluationContext();
-        Map<String, FeatureResult<ValueType>> results = new HashMap<>(featureKeys.size());
-
-        for (String key : featureKeys) {
-            try {
-                FeatureResult<ValueType> result = featureEvaluator.evaluateFeature(
-                        key,
-                        optimizedContext,
-                        valueTypeClass
-                );
-                results.put(key, result);
-                optimizedContext.setStack(new EvaluationContext.StackContext());
-            } catch (Exception e) {
-                log.error("Error evaluating feature in batch: {}", key, e);
-                results.put(
-                        key,
-                        FeatureResult.<ValueType>builder()
-                                .value(null)
-                                .source(FeatureResultSource.UNKNOWN_FEATURE)
-                                .build());
-            }
-        }
-
-        return results;
-    }
-
     private void refreshStickyBucketService(@Nullable String featuresDataModel) {
         if (context.getStickyBucketService() != null) {
             GrowthBookUtils.refreshStickyBuckets(context, featuresDataModel, attributeOverrides);
+            // Sync updated docs into the evaluation context so the next evalFeature call sees them.
+            if (evaluationContext != null && evaluationContext.getUser() != null) {
+                evaluationContext.getUser().setStickyBucketAssignmentDocs(context.getStickyBucketAssignmentDocs());
+            }
         }
     }
 

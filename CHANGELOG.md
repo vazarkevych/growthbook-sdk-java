@@ -1,5 +1,44 @@
 # Changelog
 
+## [0.10.10](https://github.com/growthbook/growthbook-sdk-java/compare/v0.10.9...0.10.10) (2026-05-08)
+
+
+### Bug Fixes
+
+* remove duplicate rollout check in force rule evaluation ([#208](https://github.com/growthbook/growthbook-sdk-java/issues/208)) ([4f76450](https://github.com/growthbook/growthbook-sdk-java/commit/4f764505f8581009f9828b5ad3a0e50c455de146))
+
+## [0.10.9](https://github.com/growthbook/growthbook-sdk-java/compare/v0.10.8...0.10.9) (2026-04-07)
+
+
+### Features
+
+* add case-insensitive operators ini, nini, alli to condition evaluator ([#194](https://github.com/growthbook/growthbook-sdk-java/issues/194)) ([5e9b94c](https://github.com/growthbook/growthbook-sdk-java/commit/5e9b94cb831687f3147237157bcc76ef5cab11a6))
+
+## [0.10.8](https://github.com/growthbook/growthbook-sdk-java/compare/0.10.7...0.10.8) (2026-03-30)
+
+
+### Performance Improvements
+
+* Reduce allocations in evalPath ([#199](https://github.com/growthbook/growthbook-sdk-java/issues/199)) ([44b08d9](https://github.com/growthbook/growthbook-sdk-java/commit/44b08d9d2f91f868b78a5ee5c0e28b9d36ae4ac2))
+  - Remove merged-map allocation from forced feature & variation lookups
+  - Normalize `UserContext` defaults
+  - Avoid eager string work in override logging
+
+## [0.10.7](https://github.com/growthbook/growthbook-sdk-java/compare/v0.10.6...0.10.7) (2026-03-17)
+
+
+### Bug Fixes
+
+* isOn() returns true for map/object and other missing types ([#195](https://github.com/growthbook/growthbook-sdk-java/issues/195)) ([30bf5e2](https://github.com/growthbook/growthbook-sdk-java/commit/30bf5e2fd03a498015aa82ac6f9707e60634d8c9))
+
+## [0.10.6](https://github.com/growthbook/growthbook-sdk-java/compare/v0.10.5...0.10.6) (2026-01-29)
+
+
+### Features
+
+* add support for regexi operator ([#191](https://github.com/growthbook/growthbook-sdk-java/issues/191)) ([e65a514](https://github.com/growthbook/growthbook-sdk-java/commit/e65a514b858b5ea46ecf59f3e9025a49a11c75cb))
+* Implement ETag caching ([#187](https://github.com/growthbook/growthbook-sdk-java/issues/187)) ([16ef464](https://github.com/growthbook/growthbook-sdk-java/commit/16ef4641e835c0f0279dc8c7d906bd63ed6a091f))
+
 ## [0.10.5](https://github.com/growthbook/growthbook-sdk-java/compare/v0.10.4...0.10.5) (2025-12-18)
 
 

@@ -32,6 +32,39 @@ public class FeatureEvaluator implements IFeatureEvaluator {
     private final ConditionEvaluator conditionEvaluator = new ConditionEvaluator();
     private final ExperimentEvaluator experimentEvaluator = new ExperimentEvaluator();
 
+    /**
+     * Evaluates a batch of features against a single, shared {@link EvaluationContext}.
+     * The context (and the {@code GlobalContext} it references) is reused for every key
+     * instead of being rebuilt per feature, and the per-evaluation stack is reset between
+     * features so evaluation state does not leak. A feature whose evaluation throws is
+     * recorded as {@link FeatureResultSource#UNKNOWN_FEATURE} rather than aborting the batch.
+     */
+    @Override
+    public <ValueType> Map<String, FeatureResult<ValueType>> evaluateFeatures(
+            List<String> featureKeys,
+            EvaluationContext context,
+            Class<ValueType> valueTypeClass
+    ) {
+        Map<String, FeatureResult<ValueType>> results = new HashMap<>();
+        if (featureKeys == null || featureKeys.isEmpty()) {
+            return results;
+        }
+        for (String key : featureKeys) {
+            try {
+                results.put(key, evaluateFeature(key, context, valueTypeClass));
+            } catch (RuntimeException e) {
+                log.error("Error evaluating feature '{}' in batch", key, e);
+                results.put(key, FeatureResult.<ValueType>builder()
+                        .value(null)
+                        .source(FeatureResultSource.UNKNOWN_FEATURE)
+                        .build());
+            } finally {
+                context.setStack(new EvaluationContext.StackContext());
+            }
+        }
+        return results;
+    }
+
     // Takes Context and Feature Key
     // Returns Calculated Feature Result against that key
     @Override

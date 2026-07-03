@@ -56,8 +56,6 @@ class GrowthBookEvalFeaturesTest {
         Map<String, FeatureResult<Object>> batch = subject.evalFeatures(
                 Collections.singletonList("f_forced"), Object.class);
 
-        // employee=true forces the value to 100 (source FORCE), proving the shared context
-        // still carries the user's attributes across the batch.
         assertEquals(FeatureResultSource.FORCE, batch.get("f_forced").getSource());
     }
 

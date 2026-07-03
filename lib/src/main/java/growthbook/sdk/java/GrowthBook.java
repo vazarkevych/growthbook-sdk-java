@@ -17,6 +17,7 @@ import growthbook.sdk.java.model.AssignedExperiment;
 import growthbook.sdk.java.model.Experiment;
 import growthbook.sdk.java.model.ExperimentResult;
 import growthbook.sdk.java.model.FeatureResult;
+import growthbook.sdk.java.model.FeatureResultSource;
 import growthbook.sdk.java.model.GBContext;
 import growthbook.sdk.java.model.RequestBodyForRemoteEval;
 import growthbook.sdk.java.remoteeval.RemoteEvalCache;
@@ -259,6 +260,42 @@ public class GrowthBook implements IGrowthBook {
     @Override
     public <ValueType> FeatureResult<ValueType> evalFeature(String key, Class<ValueType> valueTypeClass) {
         return featureEvaluator.evaluateFeature(key, getEvaluationContext(), valueTypeClass);
+    }
+
+    /**
+     * Evaluates a batch of features reusing a single {@link EvaluationContext}, so shared
+     * setup (attribute state, global context references) is not repeated per feature.
+     *
+     * @param featureKeys    the feature keys to evaluate
+     * @param valueTypeClass the expected value type (typically {@code Object.class} for mixed types)
+     * @param <ValueType>    the result value type
+     * @return a map from feature key to its {@link FeatureResult}
+     */
+    @Override
+    public <ValueType> Map<String, FeatureResult<ValueType>> evalFeatures(
+            List<String> featureKeys,
+            Class<ValueType> valueTypeClass
+    ) {
+        Map<String, FeatureResult<ValueType>> results = new HashMap<>();
+        if (featureKeys == null || featureKeys.isEmpty()) {
+            return results;
+        }
+        EvaluationContext context = getEvaluationContext();
+        for (String key : featureKeys) {
+            try {
+                results.put(key, featureEvaluator.evaluateFeature(key, context, valueTypeClass));
+            } catch (RuntimeException e) {
+                log.error("Error evaluating feature '{}' in batch", key, e);
+                results.put(key, FeatureResult.<ValueType>builder()
+                        .value(null)
+                        .source(FeatureResultSource.UNKNOWN_FEATURE)
+                        .build());
+            } finally {
+                // Reset per-evaluation state so features don't leak stack/prerequisite context.
+                context.setStack(new EvaluationContext.StackContext());
+            }
+        }
+        return results;
     }
 
     /**

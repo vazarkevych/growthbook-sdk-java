@@ -12,6 +12,7 @@ import growthbook.sdk.java.model.AssignedExperiment;
 import growthbook.sdk.java.model.Experiment;
 import growthbook.sdk.java.model.ExperimentResult;
 import growthbook.sdk.java.model.FeatureResult;
+import growthbook.sdk.java.model.FeatureResultSource;
 import growthbook.sdk.java.model.RequestBodyForRemoteEval;
 import growthbook.sdk.java.multiusermode.configurations.EvaluationContext;
 import growthbook.sdk.java.multiusermode.configurations.GlobalContext;
@@ -253,6 +254,45 @@ public class GrowthBookClient {
                                                             Class<ValueType> valueTypeClass,
                                                             UserContext userContext) {
         return featureEvaluator.evaluateFeature(key, getEvalContext(userContext), valueTypeClass);
+    }
+
+    /**
+     * Evaluates a batch of features for the same user using a single shared
+     * {@link EvaluationContext}. Attribute merging, global-context references and any
+     * sticky-bucket preload happen once for the whole batch instead of once per feature,
+     * so memory stays O(size(context)) rather than O(features × size(context)).
+     *
+     * @param featureKeys    the feature keys to evaluate
+     * @param valueTypeClass the expected value type (typically {@code Object.class} for mixed types)
+     * @param userContext    the user context, processed once
+     * @param <ValueType>    the result value type
+     * @return a map from feature key to its {@link FeatureResult}
+     */
+    public <ValueType> Map<String, FeatureResult<ValueType>> evalFeatures(
+            List<String> featureKeys,
+            Class<ValueType> valueTypeClass,
+            UserContext userContext
+    ) {
+        Map<String, FeatureResult<ValueType>> results = new HashMap<>();
+        if (featureKeys == null || featureKeys.isEmpty()) {
+            return results;
+        }
+        EvaluationContext context = getEvalContext(userContext);
+        for (String key : featureKeys) {
+            try {
+                results.put(key, featureEvaluator.evaluateFeature(key, context, valueTypeClass));
+            } catch (RuntimeException e) {
+                log.error("Error evaluating feature '{}' in batch", key, e);
+                results.put(key, FeatureResult.<ValueType>builder()
+                        .value(null)
+                        .source(FeatureResultSource.UNKNOWN_FEATURE)
+                        .build());
+            } finally {
+                // Reset per-evaluation state so features don't leak stack/prerequisite context.
+                context.setStack(new EvaluationContext.StackContext());
+            }
+        }
+        return results;
     }
 
     public Boolean isOn(String featureKey, UserContext userContext) {

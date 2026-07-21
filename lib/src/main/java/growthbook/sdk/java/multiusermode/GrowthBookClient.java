@@ -12,6 +12,7 @@ import growthbook.sdk.java.evaluators.ExperimentEvaluator;
 import growthbook.sdk.java.evaluators.FeatureEvaluator;
 import growthbook.sdk.java.exception.FeatureFetchException;
 import growthbook.sdk.java.exception.GrowthBookClientInitializationException;
+import growthbook.sdk.java.exception.InvalidOptionsException;
 import growthbook.sdk.java.model.AssignedExperiment;
 import growthbook.sdk.java.model.Experiment;
 import growthbook.sdk.java.model.ExperimentResult;
@@ -20,6 +21,7 @@ import growthbook.sdk.java.model.RequestBodyForRemoteEval;
 import growthbook.sdk.java.multiusermode.configurations.EvaluationContext;
 import growthbook.sdk.java.multiusermode.configurations.GlobalContext;
 import growthbook.sdk.java.multiusermode.configurations.Options;
+import growthbook.sdk.java.multiusermode.configurations.OptionsValidator;
 import growthbook.sdk.java.multiusermode.configurations.UserContext;
 import growthbook.sdk.java.remoteeval.RemoteEvalCache;
 import growthbook.sdk.java.remoteeval.RemoteEvalCacheKey;
@@ -136,6 +138,13 @@ public class GrowthBookClient {
     }
 
     public boolean initialize() {
+        try {
+            OptionsValidator.validate(this.options);
+        } catch (InvalidOptionsException e) {
+            log.error("Failed to initialize growthbook instance", e);
+            return false;
+        }
+
         if (this.options.isRemoteEvalEnabled()) {
             try {
                 return ensureRemoteEvalReady();

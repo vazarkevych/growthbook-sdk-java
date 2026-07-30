@@ -8,6 +8,8 @@ import growthbook.sdk.java.model.FeatureResult;
 import growthbook.sdk.java.multiusermode.usage.FeatureUsageCallbackWithUser;
 import growthbook.sdk.java.multiusermode.usage.TrackingCallbackWithUser;
 import growthbook.sdk.java.multiusermode.util.TransformationUtil;
+import growthbook.sdk.java.plugin.GrowthBookPlugin;
+import growthbook.sdk.java.plugin.PluginRegistry;
 import growthbook.sdk.java.remoteeval.RemoteEvalRequestBuilder;
 import growthbook.sdk.java.repository.FeatureRefreshStrategy;
 import growthbook.sdk.java.retry.FeatureFetchRetryPolicy;
@@ -83,6 +85,7 @@ public class Options {
                 null,
                 null,
                 null,
+                null,
                 null
         );
     }
@@ -114,7 +117,8 @@ public class Options {
                    @Nullable Integer remoteEvalCacheSize,
                    @Nullable Integer remoteEvalCacheTtlSeconds,
                    @Nullable Duration backgroundFetchInterval,
-                   @Nullable FeatureFetchRetryPolicy retryPolicy
+                   @Nullable FeatureFetchRetryPolicy retryPolicy,
+                   @Nullable List<GrowthBookPlugin> plugins
     ) {
         this.enabled = enabled == null || enabled;
         this.isQaMode = isQaMode != null && isQaMode;
@@ -143,6 +147,7 @@ public class Options {
         this.remoteEvalCacheTtlSeconds = remoteEvalCacheTtlSeconds;
         this.backgroundFetchInterval = backgroundFetchInterval;
         this.retryPolicy = retryPolicy;
+        this.plugins = plugins;
     }
 
     /**
@@ -272,6 +277,17 @@ public class Options {
 
     @Nullable
     private String cacheDirectory;
+
+    /**
+     * Plugins registered with the GrowthBook client. See
+     * {@link GrowthBookPlugin} and
+     * {@link growthbook.sdk.java.plugin.tracking.GrowthBookTrackingPlugin}.
+     * The owning client builds a per-instance {@link PluginRegistry} from this
+     * list; the registry itself is carried on {@code EvaluationContext}, not
+     * here, so reusing one {@code Options} across clients stays isolated.
+     */
+    @Nullable
+    private List<GrowthBookPlugin> plugins;
 
     private Boolean remoteEval;
 

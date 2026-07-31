@@ -12,6 +12,7 @@ import growthbook.sdk.java.model.FeatureResultSource;
 import growthbook.sdk.java.model.FeatureRule;
 import growthbook.sdk.java.multiusermode.configurations.EvaluationContext;
 import growthbook.sdk.java.multiusermode.usage.FeatureUsageCallbackWithUser;
+import growthbook.sdk.java.plugin.PluginRegistry;
 import lombok.extern.slf4j.Slf4j;
 import javax.annotation.Nullable;
 import java.net.MalformedURLException;
@@ -153,11 +154,13 @@ public class FeatureEvaluator implements IFeatureEvaluator {
         }
         T value = (T) GrowthBookJsonUtils.unwrap(forcedFeatureValue);
         log.info("Forced feature override with key: {} and value {}", key, forcedFeatureValue);
-        return FeatureResult
+        FeatureResult<T> overrideResult = FeatureResult
                 .<T>builder()
                 .value(value)
                 .source(FeatureResultSource.OVERRIDE)
                 .build();
+        dispatchFeatureUsage(context, key, overrideResult);
+        return overrideResult;
     }
 
     @Nullable
@@ -395,6 +398,10 @@ public class FeatureEvaluator implements IFeatureEvaluator {
         FeatureUsageCallbackWithUser featureUsageCallbackWithUser = context.getOptions().getFeatureUsageCallbackWithUser();
         if (featureUsageCallbackWithUser != null) {
             featureUsageCallbackWithUser.onFeatureUsage(key, result, context.getUser());
+        }
+        PluginRegistry registry = context.getPluginRegistry();
+        if (registry != null) {
+            registry.fireFeatureEvaluated(key, result);
         }
     }
 

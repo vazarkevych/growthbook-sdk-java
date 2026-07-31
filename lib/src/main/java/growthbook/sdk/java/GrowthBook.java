@@ -16,6 +16,7 @@ import growthbook.sdk.java.exception.FeatureFetchException;
 import growthbook.sdk.java.model.AssignedExperiment;
 import growthbook.sdk.java.model.Experiment;
 import growthbook.sdk.java.model.ExperimentResult;
+import growthbook.sdk.java.model.FeatureKey;
 import growthbook.sdk.java.model.FeatureResult;
 import growthbook.sdk.java.model.GBContext;
 import growthbook.sdk.java.model.RequestBodyForRemoteEval;
@@ -36,6 +37,7 @@ import growthbook.sdk.java.multiusermode.configurations.Options;
 import growthbook.sdk.java.multiusermode.configurations.UserContext;
 import growthbook.sdk.java.multiusermode.usage.FeatureUsageCallbackAdapter;
 import growthbook.sdk.java.multiusermode.usage.TrackingCallbackAdapter;
+import growthbook.sdk.java.plugin.PluginRegistry;
 import growthbook.sdk.java.stickyBucketing.InMemoryStickyBucketServiceImpl;
 import growthbook.sdk.java.stickyBucketing.StickyBucketService;
 
@@ -61,6 +63,7 @@ public class GrowthBook implements IGrowthBook {
 
     public EvaluationContext evaluationContext = null;
     private final Map<String, AssignedExperiment> assigned;
+    private final PluginRegistry pluginRegistry;
     private RemoteEvalService remoteEvalService;
     private RemoteEvalCache remoteEvalCache;
 
@@ -79,10 +82,12 @@ public class GrowthBook implements IGrowthBook {
         this.conditionEvaluator = new ConditionEvaluator();
         this.experimentEvaluatorEvaluator = new ExperimentEvaluator();
         this.attributeOverrides = context.getAttributes() == null ? new JsonObject() : context.getAttributes();
+        this.pluginRegistry = new PluginRegistry(context.getPlugins());
 
         // Load sticky bucket docs on construction if a service is configured,
         refreshStickyBucketService(null);
         this.initializeEvalContext();
+        this.pluginRegistry.initAll();
     }
 
     /**
@@ -99,9 +104,11 @@ public class GrowthBook implements IGrowthBook {
         this.conditionEvaluator = new ConditionEvaluator();
         this.experimentEvaluatorEvaluator = new ExperimentEvaluator();
         this.attributeOverrides = context.getAttributes() == null ? new JsonObject() : context.getAttributes();
+        this.pluginRegistry = new PluginRegistry(context.getPlugins());
 
 
         this.initializeEvalContext();
+        this.pluginRegistry.initAll();
     }
 
     /**
@@ -121,8 +128,10 @@ public class GrowthBook implements IGrowthBook {
         this.callbacks = new ArrayList<>();
         this.attributeOverrides = context.getAttributes() == null ? new JsonObject() : context.getAttributes();
         //this.savedGroups = context.getSavedGroups() == null ? new JsonObject() : context.getSavedGroups();
+        this.pluginRegistry = new PluginRegistry(context.getPlugins());
 
         this.initializeEvalContext();
+        this.pluginRegistry.initAll();
     }
 
     private void initializeEvalContext() {
@@ -180,8 +189,10 @@ public class GrowthBook implements IGrowthBook {
                 .forcedFeatureValues(this.forcedFeatureValues)
                 .build();
 
-        return new EvaluationContext(globalContext, userContext,
+        EvaluationContext evalContext = new EvaluationContext(globalContext, userContext,
                 new EvaluationContext.StackContext(), options);
+        evalContext.setPluginRegistry(this.pluginRegistry);
+        return evalContext;
     }
 
     private RemoteEvalResponse getRemoteEvalResponse() throws FeatureFetchException {
@@ -601,6 +612,74 @@ public class GrowthBook implements IGrowthBook {
     }
 
     /**
+     * Evaluate a feature using a type-safe {@link FeatureKey} instead of a raw string key.
+     * The key carries both the feature identifier and its value type, so a mistyped key
+     * becomes a compile-time error rather than a silent runtime miss.
+     *
+     * <p>As with {@link #evalFeature(String, Class)}, the returned result's
+     * {@link FeatureResult#getValue()} is the raw evaluated value (a boxed primitive, or a
+     * {@code Map}/{@code List} for object and array features); it is <em>not</em> deserialized
+     * into the key's value type. To obtain a deserialized instance of a complex type, use
+     * {@link #getFeatureValue(FeatureKey, Object)}.
+     *
+     * @param featureKey  typed feature key, e.g. {@code Features.NEW_HOME}
+     * @param <T> feature value type carried by the key
+     * @return the feature result
+     */
+    @Nullable
+    @Override
+    public <T> FeatureResult<T> getFeature(FeatureKey<T> featureKey) {
+        return evalFeature(featureKey.getKey(), featureKey.getValueType());
+    }
+
+    @Override
+    public Boolean isOn(FeatureKey<?> featureKey) {
+        return isOn(featureKey.getKey());
+    }
+
+    @Override
+    public Boolean isOff(FeatureKey<?> featureKey) {
+        return isOff(featureKey.getKey());
+    }
+
+    @Override
+    public <T> T getFeatureValue(FeatureKey<T> featureKey, T defaultValue) {
+        return getFeatureValue(featureKey.getKey(), defaultValue, featureKey.getValueType());
+    }
+
+    @Override
+    public Boolean getBooleanFeature(FeatureKey<Boolean> featureKey) {
+        return getBooleanFeature(featureKey, false);
+    }
+
+    @Override
+    public Boolean getBooleanFeature(FeatureKey<Boolean> featureKey, Boolean defaultValue) {
+        return getFeatureValue(featureKey.getKey(), defaultValue);
+    }
+
+    @Override
+    public String getStringFeature(FeatureKey<String> featureKey, String defaultValue) {
+        return getFeatureValue(featureKey.getKey(), defaultValue);
+    }
+
+    @Override
+    public Integer getIntegerFeature(FeatureKey<Integer> featureKey, Integer defaultValue) {
+        return getFeatureValue(featureKey.getKey(), defaultValue);
+    }
+
+    @Override
+    public Double getDoubleFeature(FeatureKey<Double> featureKey, Double defaultValue) {
+        return getFeatureValue(featureKey.getKey(), defaultValue);
+    }
+
+    @Override
+    public Float getFloatFeature(FeatureKey<Float> featureKey, Float defaultValue) {
+        return getFeatureValue(featureKey.getKey(), defaultValue);
+    }
+
+    // endregion Typed feature access
+
+    /**
      * Reinitialized the list of ExperimentRunCallbacks.
      * This method clears the current list of callbacks by replacing it with a new empty ArrayList.
      */
@@ -612,6 +691,11 @@ public class GrowthBook implements IGrowthBook {
         }
         if (this.remoteEvalService != null) {
             this.remoteEvalService.close();
+        }
+        // Flush registered plugins (including the built-in tracking plugin) so
+        // any buffered events are sent before the instance is discarded.
+        if (this.pluginRegistry != null) {
+            this.pluginRegistry.closeAll();
         }
     }
 

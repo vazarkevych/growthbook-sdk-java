@@ -4,6 +4,7 @@ import com.google.gson.JsonObject;
 import growthbook.sdk.java.callback.FeatureUsageCallback;
 import growthbook.sdk.java.callback.TrackingCallback;
 import growthbook.sdk.java.multiusermode.util.TransformationUtil;
+import growthbook.sdk.java.plugin.GrowthBookPlugin;
 import growthbook.sdk.java.remoteeval.RemoteEvalRequestBuilder;
 import growthbook.sdk.java.stickyBucketing.StickyBucketService;
 import growthbook.sdk.java.util.ForcedVariationsUtils;
@@ -75,7 +76,8 @@ public class GBContext {
             @Nullable Boolean remoteEval,
             @Nullable List<String> cacheKeyAttributes,
             @Nullable Integer remoteEvalCacheSize,
-            @Nullable Integer remoteEvalCacheTtlSeconds
+            @Nullable Integer remoteEvalCacheTtlSeconds,
+            @Nullable List<GrowthBookPlugin> plugins
     ) {
         this.encryptionKey = encryptionKey;
         this.attributesJson = attributesJson == null ? "{}" : attributesJson;
@@ -105,6 +107,7 @@ public class GBContext {
         this.cacheKeyAttributes = cacheKeyAttributes;
         this.remoteEvalCacheSize = RemoteEvalRequestBuilder.normalizeCacheSize(remoteEvalCacheSize);
         this.remoteEvalCacheTtlSeconds = remoteEvalCacheTtlSeconds;
+        this.plugins = plugins;
     }
 
     public GBContext(
@@ -142,6 +145,7 @@ public class GBContext {
                 stickyBucketAssignmentDocs,
                 stickyBucketIdentifierAttributes,
                 savedGroups,
+                null,
                 null,
                 null,
                 null,
@@ -312,6 +316,14 @@ public class GBContext {
     public boolean isRemoteEvalEnabled() {
         return Boolean.TRUE.equals(this.remoteEval);
     }
+
+    /**
+     * Plugins registered with the GrowthBook instance. See
+     * {@link GrowthBookPlugin} and
+     * {@link growthbook.sdk.java.plugin.tracking.GrowthBookTrackingPlugin}.
+     */
+    @Nullable
+    private List<GrowthBookPlugin> plugins;
 
     /**
      * The builder class to help create a context. You can use {@link #builder()} or the {@link GBContext} constructor

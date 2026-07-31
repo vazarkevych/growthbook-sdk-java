@@ -248,11 +248,15 @@ public class GrowthBook implements IGrowthBook {
         // memoized results); sharing/resetting it on a single instance would let concurrent
         // evaluations corrupt each other's state.
         EvaluationContext base = this.evaluationContext;
-        return new EvaluationContext(
+        EvaluationContext perCall = new EvaluationContext(
                 base.getGlobal(),
                 base.getUser(),
                 new EvaluationContext.StackContext(),
                 base.getOptions());
+        // Carry the plugin registry onto the per-call copy; it lives on the context (not Options),
+        // so a fresh copy would otherwise drop it and no plugin would receive events.
+        perCall.setPluginRegistry(base.getPluginRegistry());
+        return perCall;
     }
 
     /**
